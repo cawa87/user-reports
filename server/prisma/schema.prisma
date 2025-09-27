@@ -1,0 +1,265 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  email     String   @unique
+  name      String?
+  avatar    String?
+  gitlabId  Int?     @unique
+  clickupId String?  @unique
+  isActive  Boolean  @default(true)
+  
+  // Metadata
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lastSeen  DateTime?
+
+  // Statistics aggregates (cached for performance)
+  totalCommits      Int @default(0)
+  totalLinesAdded   Int @default(0)
+  totalLinesDeleted Int @default(0)
+  totalTasksCompleted Int @default(0)
+  totalTimeSpent    Int @default(0) // in minutes
+  productivityScore Float @default(0)
+
+  // Relations
+  commits      Commit[]
+  tasks        Task[]
+  codeStats    CodeStats[]
+  timeEntries  TimeEntry[]
+  goals        ProductivityGoal[]
+  
+  @@map("users")
+}
+
+model Project {
+  id          Int      @id
+  name        String
+  description String?
+  gitlabUrl   String?
+  namespace   String?
+  visibility  String?
+  isActive    Boolean  @default(true)
+  
+  // Metadata
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  lastActivity DateTime?
+
+  // Statistics
+  totalCommits     Int @default(0)
+  totalContributors Int @default(0)
+  linesOfCode      Int @default(0)
+
+  // Relations
+  commits     Commit[]
+  codeStats   CodeStats[]
+  
+  @@map("projects")
+}
+
+model Commit {
+  id          String   @id @default(cuid())
+  sha         String   @unique
+  message     String
+  authorEmail String
+  authorName  String
+  authorDate  DateTime
+  additions   Int      @default(0)
+  deletions   Int      @default(0)
+  filesChanged Int     @default(0)
+  
+  // Relations
+  projectId   Int
+  project     Project @relation(fields: [projectId], references: [id])
+  userId      String
+  user        User    @relation(fields: [userId], references: [id])
+  
+  // Metadata
+  createdAt   DateTime @default(now())
+  
+  @@map("commits")
+}
+
+model Task {
+  id          String     @id @default(cuid())
+  clickupId   String     @unique
+  name        String
+  description String?
+  status      TaskStatus
+  priority    TaskPriority?
+  dueDate     DateTime?
+  startDate   DateTime?
+  timeEstimate Int?       @default(0) // in minutes
+  timeSpent   Int?       @default(0) // in minutes
+  
+  // ClickUp specific
+  listId      String?
+  spaceId     String?
+  folderId    String?
+  
+  // Relations
+  assigneeId  String
+  assignee    User       @relation(fields: [assigneeId], references: [id])
+  timeEntries TimeEntry[]
+  
+  // Metadata
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  completedAt DateTime?
+
+  @@map("tasks")
+}
+
+model TimeEntry {
+  id          String   @id @default(cuid())
+  clickupId   String?  @unique
+  description String?
+  duration    Int      // in minutes
+  startTime   DateTime
+  endTime     DateTime?
+  
+  // Relations
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  taskId      String?
+  task        Task?    @relation(fields: [taskId], references: [id])
+  
+  // Metadata
+  createdAt   DateTime @default(now())
+  
+  @@map("time_entries")
+}
+
+model CodeStats {
+  id              String   @id @default(cuid())
+  date            DateTime @default(now())
+  
+  // Relations
+  userId          String
+  user            User     @relation(fields: [userId], references: [id])
+  projectId       Int
+  project         Project  @relation(fields: [projectId], references: [id])
+  
+  // Statistics
+  linesAdded      Int      @default(0)
+  linesDeleted    Int      @default(0)
+  filesChanged    Int      @default(0)
+  commitsCount    Int      @default(0)
+  
+  @@unique([userId, projectId, date])
+  @@map("code_stats")
+}
+
+model ProductivityGoal {
+  id          String   @id @default(cuid())
+  type        GoalType
+  title       String
+  description String?
+  targetValue Int
+  currentValue Int     @default(0)
+  startDate   DateTime
+  endDate     DateTime
+  isCompleted Boolean  @default(false)
+  
+  // Relations
+  userId      String
+  user        User     @relation(fields: [userId], references: [id])
+  
+  // Metadata
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  @@map("productivity_goals")
+}
+
+model SyncLog {
+  id        String     @id @default(cuid())
+  service   SyncService
+  status    SyncStatus
+  message   String?
+  recordsProcessed Int    @default(0)
+  errorDetails Json?
+  duration  Int?       // in milliseconds
+  
+  // Metadata
+  startedAt DateTime   @default(now())
+  completedAt DateTime?
+  
+  @@map("sync_logs")
+}
+
+model SystemMetrics {
+  id        String   @id @default(cuid())
+  date      DateTime @default(now())
+  
+  // User metrics
+  totalUsers       Int @default(0)
+  activeUsers      Int @default(0)
+  newUsers         Int @default(0)
+  
+  // Code metrics
+  totalCommits     Int @default(0)
+  totalProjects    Int @default(0)
+  linesOfCode      Int @default(0)
+  
+  // Task metrics
+  totalTasks       Int @default(0)
+  completedTasks   Int @default(0)
+  pendingTasks     Int @default(0)
+  
+  // Time metrics
+  totalTimeTracked Int @default(0) // in minutes
+  
+  @@unique([date])
+  @@map("system_metrics")
+}
+
+// Enums
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  REVIEW
+  TESTING
+  DONE
+  CLOSED
+  CANCELLED
+}
+
+enum TaskPriority {
+  URGENT
+  HIGH
+  NORMAL
+  LOW
+}
+
+enum GoalType {
+  COMMITS
+  LINES_OF_CODE
+  TASKS_COMPLETED
+  TIME_TRACKED
+  PRODUCTIVITY_SCORE
+}
+
+enum SyncService {
+  GITLAB
+  CLICKUP
+}
+
+enum SyncStatus {
+  RUNNING
+  SUCCESS
+  FAILED
+  PARTIAL
+}

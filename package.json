@@ -1,0 +1,29 @@
+{
+  "name": "userreports",
+  "version": "1.0.0",
+  "description": "User statistics tracking tool for GitLab and ClickUp",
+  "scripts": {
+    "dev": "concurrently \"cd server && npm run dev\" \"cd client && npm run dev\"",
+    "build": "cd client && npm run build",
+    "start": "cd server && npm start",
+    "setup": "npm install && cd server && npm install && cd ../client && npm install",
+    "db:setup": "cd server && npm install && npm run db:generate && npm run db:push",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "kill": "npm run kill:processes && npm run docker:down && echo '🛑 All services stopped successfully'",
+    "kill:processes": "echo '🛑 Stopping all UserReports processes...' && pkill -9 -f 'userreports' || true && pkill -9 -f 'npm.*dev' || true && pkill -9 -f 'concurrently' || true && pkill -9 -f 'ts-node-dev' || true && pkill -9 -f 'vite' || true && pkill -9 -f 'esbuild.*userreports' || true && sleep 3 && echo '✅ All processes killed'",
+    "restart": "npm run kill && sleep 2 && npm run docker:up && npm run dev",
+    "status": "echo '📊 Checking UserReports status...' && (curl -s --connect-timeout 2 http://localhost:3001/api/health >/dev/null 2>&1 && echo '✅ Backend: Running on port 3001' || echo '❌ Backend: Not running') && (curl -s --connect-timeout 2 http://localhost:5173 >/dev/null 2>&1 && echo '✅ Frontend: Running on port 5173' || curl -s --connect-timeout 1 http://localhost:5174 >/dev/null 2>&1 && echo '✅ Frontend: Running on port 5174' || curl -s --connect-timeout 1 http://localhost:5175 >/dev/null 2>&1 && echo '✅ Frontend: Running on port 5175' || curl -s --connect-timeout 1 http://localhost:5176 >/dev/null 2>&1 && echo '✅ Frontend: Running on port 5176' || echo '❌ Frontend: Not running') && (docker ps | grep -q userreports && echo '✅ Database: Running (Docker containers up)' || echo '❌ Database: Not running')",
+    "sync": "echo '🔄 Starting real data sync from GitLab and ClickUp...' && curl -X POST http://localhost:3001/api/sync/manual -H 'Content-Type: application/json' && echo '\\n✅ Real data sync completed!'",
+    "sync:gitlab": "echo '🦊 Syncing real GitLab data...' && curl -X POST http://localhost:3001/api/sync/gitlab -H 'Content-Type: application/json' && echo '\\n✅ GitLab real data sync completed!'",
+    "sync:clickup": "echo '🎯 Syncing real ClickUp data...' && curl -X POST http://localhost:3001/api/sync/clickup -H 'Content-Type: application/json' && echo '\\n✅ ClickUp real data sync completed!'",
+    "sync:status": "echo '📊 Checking sync status...' && curl -s http://localhost:3001/api/sync/status | jq '.' || echo 'Could not fetch sync status'"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  }
+}
