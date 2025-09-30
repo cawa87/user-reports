@@ -173,9 +173,67 @@ npm start
 ```
 
 ### Docker Deployment
+
+UserReports uses a **single `docker-compose.yml` file** with profiles for all deployment scenarios:
+
+#### Quick Start Options
 ```bash
-docker-compose -f docker-compose.prod.yml up -d
+# Development (hot-reload)
+npm run docker:up:dev
+
+# Production (full stack with proxy)  
+npm run docker:up:prod
+
+# App-only (external DB/Redis)
+npm run docker:up:app
+
+# Stop all services
+npm run docker:down
 ```
+
+#### Available Profiles
+- **`dev`** - Development with hot-reload (port 5173)
+- **`prod`** - Production with Nginx proxy (port 80)  
+- **`app`** - Applications only for external services
+- **`full`** - Complete local stack (port 8080)
+- **`db`** - Database services only
+
+#### Environment Templates
+```bash
+# Choose your deployment type:
+cp env.dev.example .env      # Development
+cp env.prod.example .env     # Production  
+cp env.app.example .env      # External services
+
+# Edit .env with your API credentials
+```
+
+#### Management Commands
+```bash
+# Build and deploy
+npm run docker:deploy:build
+
+# Health monitoring
+npm run docker:health:detailed
+
+# View logs  
+npm run docker:logs:api
+
+# Backup database
+npm run docker:backup
+
+# Environment validation
+npm run docker:validate:fix
+```
+
+#### Access URLs
+- **Development**: http://localhost:5173 (Vite dev server)
+- **Production**: http://localhost (via Nginx proxy)
+- **App-only**: http://localhost:8080
+- **API**: http://localhost:3001/api
+- **Health**: http://localhost:3001/api/health
+
+For detailed Docker usage instructions, see [DOCKER_USAGE.md](DOCKER_USAGE.md).
 
 ## 🤝 Contributing
 

@@ -1,46 +1,245 @@
 version: '3.8'
 
 services:
-  postgres:
+  # PostgreSQL Database
+  userreports-db:
     image: postgres:15-alpine
     container_name: userreports-db
+    restart: unless-stopped
     environment:
       POSTGRES_DB: userreports
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: password
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+      # Development logging (only active in dev profile)
+      POSTGRES_LOG_STATEMENT: ${POSTGRES_LOG_STATEMENT:-}
+      POSTGRES_LOG_MIN_MESSAGES: ${POSTGRES_LOG_MIN_MESSAGES:-}
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
-    restart: unless-stopped
+      - ./init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      # Development SQL scripts (only mounted in dev)
+      - ./scripts/dev-init.sql:/docker-entrypoint-initdb.d/99-dev-init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      test: ["CMD-SHELL", "pg_isready -U postgres -d userreports"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - userreports-network
+    profiles:
+      - db
+      - full
+    labels:
+      - "com.docker.compose.project=userreports"
 
-  redis:
+  # Redis Cache
+  userreports-redis:
     image: redis:7-alpine
     container_name: userreports-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes ${REDIS_AUTH_CMD:-}
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
-    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+    networks:
+      - userreports-network
+    profiles:
+      - db
+      - full
+    labels:
+      - "com.docker.compose.project=userreports"
+
+  # Database Migration
+  userreports-migrate:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+      target: ${BACKEND_BUILD_TARGET:-production}
+    container_name: userreports-migrate
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:-password}@userreports-db:5432/userreports}
+    command: >
+      sh -c "
+        echo 'Waiting for database...' &&
+        while ! nc -z ${DB_HOST:-userreports-db} ${DB_PORT:-5432}; do sleep 1; done &&
+        echo 'Database is ready!' &&
+        npx prisma migrate deploy &&
+        npx prisma generate &&
+        echo 'Database migration completed!'
+      "
+    depends_on:
+      userreports-db:
+        condition: service_healthy
+        required: false  # Not required if using external DB
+    networks:
+      - userreports-network
+    restart: "no"
+    profiles:
+      - full
+      - app
+      - prod
+    labels:
+      - "com.docker.compose.project=userreports"
+
+  # Backend API
+  userreports-api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+      target: ${BACKEND_BUILD_TARGET:-production}
+    container_name: userreports-api
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3001
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:-password}@userreports-db:5432/userreports}
+      - REDIS_HOST=${REDIS_HOST:-userreports-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+      # API Configuration
+      - GITLAB_URL=${GITLAB_URL}
+      - GITLAB_ACCESS_TOKEN=${GITLAB_ACCESS_TOKEN}
+      - GITLAB_PROJECT_IDS=${GITLAB_PROJECT_IDS}
+      - CLICKUP_API_TOKEN=${CLICKUP_API_TOKEN}
+      - CLICKUP_TEAM_ID=${CLICKUP_TEAM_ID}
+      - CLICKUP_SPACE_IDS=${CLICKUP_SPACE_IDS}
+      # Security
+      - JWT_SECRET=${JWT_SECRET:-your-super-secret-jwt-key-change-this-in-production}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-7d}
+      # Sync Configuration
+      - SYNC_INTERVAL_MINUTES=${SYNC_INTERVAL_MINUTES:-60}
+      - AUTO_SYNC_ENABLED=${AUTO_SYNC_ENABLED:-true}
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      # Development settings
+      - CORS_ORIGIN=${CORS_ORIGIN:-}
+      - ENABLE_PLAYGROUND=${ENABLE_PLAYGROUND:-false}
+      - ENABLE_INTROSPECTION=${ENABLE_INTROSPECTION:-false}
+    ports:
+      - "3001:3001"
+      - "${DEBUG_PORT:-9229}:9229"  # Debug port (exposed only when needed)
+    volumes:
+      # Development volume mounts (only active in dev)
+      - ${DEV_SERVER_SRC:-/tmp/empty}:/app/src:ro
+      - ${DEV_SERVER_PACKAGE:-/tmp/empty}:/app/package.json:ro
+      - ${DEV_SERVER_TSCONFIG:-/tmp/empty}:/app/tsconfig.json:ro
+    depends_on:
+      userreports-db:
+        condition: service_healthy
+        required: false  # Not required if using external DB
+      userreports-redis:
+        condition: service_healthy
+        required: false  # Not required if using external Redis
+      userreports-migrate:
+        condition: service_completed_successfully
+        required: false
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:3001/api/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 60s
+    networks:
+      - userreports-network
+    profiles:
+      - full
+      - app
+      - prod
+      - dev
+    labels:
+      - "com.docker.compose.service=api"
+      - "com.docker.compose.project=userreports"
+
+  # Frontend Application  
+  userreports-frontend:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+      target: ${FRONTEND_BUILD_TARGET:-production}
+    container_name: userreports-frontend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - VITE_API_URL=${VITE_API_URL:-}
+      - VITE_APP_ENV=${VITE_APP_ENV:-production}
+    ports:
+      - "${FRONTEND_PORT:-8080}:${FRONTEND_INTERNAL_PORT:-8080}"
+      - "${VITE_DEV_PORT:-5173}:5173"  # Vite dev server (only in dev)
+    volumes:
+      # Development volume mounts (only active in dev)
+      - ${DEV_CLIENT_SRC:-/tmp/empty}:/app/src:ro
+      - ${DEV_CLIENT_PUBLIC:-/tmp/empty}:/app/public:ro
+      - ${DEV_CLIENT_PACKAGE:-/tmp/empty}:/app/package.json:ro
+      - ${DEV_CLIENT_VITE_CONFIG:-/tmp/empty}:/app/vite.config.ts:ro
+      - ${DEV_CLIENT_TAILWIND_CONFIG:-/tmp/empty}:/app/tailwind.config.js:ro
+      - ${DEV_CLIENT_POSTCSS_CONFIG:-/tmp/empty}:/app/postcss.config.js:ro
+    depends_on:
+      userreports-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:${FRONTEND_INTERNAL_PORT:-8080}/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - userreports-network
+    profiles:
+      - full
+      - app
+      - prod
+      - dev
+    labels:
+      - "com.docker.compose.service=frontend"
+      - "com.docker.compose.project=userreports"
+
+  # Reverse Proxy (Production only)
+  userreports-proxy:
+    image: nginx:alpine
+    container_name: userreports-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      userreports-frontend:
+        condition: service_healthy
+      userreports-api:
+        condition: service_healthy
+    networks:
+      - userreports-network
+    profiles:
+      - prod
+    labels:
+      - "com.docker.compose.service=proxy"
+      - "com.docker.compose.project=userreports"
 
 volumes:
   postgres_data:
     driver: local
+    labels:
+      - "com.docker.compose.project=userreports"
   redis_data:
     driver: local
+    labels:
+      - "com.docker.compose.project=userreports"
 
 networks:
-  default:
-    name: userreports-network
+  userreports-network:
+    driver: bridge
+    name: ${NETWORK_NAME:-userreports-network}
+    labels:
+      - "com.docker.compose.project=userreports"

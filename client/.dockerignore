@@ -1,0 +1,78 @@
+# Dependencies
+node_modules
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Production build (will be created in container)
+dist
+build
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE files
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+*.md
+
+# Test files
+coverage
+*.test.js
+*.test.ts
+*.test.jsx
+*.test.tsx
+*.spec.js
+*.spec.ts
+*.spec.jsx
+*.spec.tsx
+__tests__
+test
+
+# Development tools
+.eslintrc*
+.prettierrc*
+jest.config*
+vite.config.ts.timestamp-*
+
+# Development server files
+.vite
+
+# Logs
+logs
+*.log
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Docker files
+Dockerfile*
+docker-compose*
+nginx.conf
+
+# Misc
+.tmp
+.temp
+
+# Source maps (will be generated)
+*.map
