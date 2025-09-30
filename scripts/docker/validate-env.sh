@@ -13,7 +13,7 @@ NC='\033[0m' # No Color
 echo -e "${BLUE}🔍 UserReports Environment Validation${NC}"
 
 # Default values
-ENV_FILE=".env"
+ENV_FILE="env.prod.example"
 STRICT_MODE=false
 FIX_ISSUES=false
 
@@ -35,7 +35,7 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo "Options:"
-            echo "  --env-file FILE     Environment file to validate [default: .env]"
+            echo "  --env-file FILE     Environment file to validate [default: env.prod.example]"
             echo "  --strict            Enable strict validation (fail on warnings)"
             echo "  --fix               Attempt to fix common issues"
             echo "  -h, --help          Show this help message"
@@ -301,15 +301,33 @@ else
     log_error "Docker Compose is not available"
 fi
 
-# Check for required Docker Compose files
-COMPOSE_FILES=("docker-compose.yml" "docker-compose.prod.yml")
-for file in "${COMPOSE_FILES[@]}"; do
-    if [[ -f "$file" ]]; then
-        log_success "Found $file"
+# Check for required Docker Compose file
+if [[ -f "docker-compose.yml" ]]; then
+    log_success "Found docker-compose.yml"
+    
+    # Check if profiles are defined
+    if grep -q "profiles:" docker-compose.yml; then
+        log_success "Docker Compose profiles are configured"
     else
-        log_error "Missing Docker Compose file: $file"
+        log_warning "No Docker Compose profiles found in docker-compose.yml"
     fi
-done
+else
+    log_error "Missing Docker Compose file: docker-compose.yml"
+fi
+
+# Check for Dockerfile
+if [[ -f "Dockerfile" ]]; then
+    log_success "Found unified Dockerfile"
+    
+    # Check if it has multi-stage builds
+    if grep -q "FROM.*AS.*" Dockerfile; then
+        log_success "Dockerfile has multi-stage builds"
+    else
+        log_warning "Dockerfile does not appear to have multi-stage builds"
+    fi
+else
+    log_error "Missing unified Dockerfile"
+fi
 
 echo ""
 

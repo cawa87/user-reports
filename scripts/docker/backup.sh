@@ -13,8 +13,9 @@ NC='\033[0m' # No Color
 echo -e "${BLUE}💾 UserReports Docker Backup Utility${NC}"
 
 # Default values
-COMPOSE_FILE="docker-compose.prod.yml"
-ENV_FILE=".env"
+COMPOSE_FILE="docker-compose.yml"
+ENV_FILE="env.prod.example"
+PROFILE="prod"
 BACKUP_DIR="./backups"
 BACKUP_TYPE="full"
 RETENTION_DAYS=30
@@ -29,6 +30,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --env-file)
             ENV_FILE="$2"
+            shift 2
+            ;;
+        --profile)
+            PROFILE="$2"
             shift 2
             ;;
         -d|--dir)
@@ -50,8 +55,9 @@ while [[ $# -gt 0 ]]; do
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo "Options:"
-            echo "  -f, --file FILE         Docker compose file [default: docker-compose.prod.yml]"
-            echo "  --env-file FILE         Environment file [default: .env]"
+            echo "  -f, --file FILE         Docker compose file [default: docker-compose.yml]"
+            echo "  --env-file FILE         Environment file [default: env.prod.example]"
+            echo "  --profile PROFILE       Docker compose profile [default: prod]"
             echo "  -d, --dir DIRECTORY     Backup directory [default: ./backups]"
             echo "  -t, --type TYPE         Backup type: full, db-only, volumes [default: full]"
             echo "  --retention DAYS        Retention period in days [default: 30]"
@@ -77,6 +83,15 @@ if docker compose version >/dev/null 2>&1; then
     DOCKER_COMPOSE_CMD="docker compose"
 fi
 
+# Build compose command with profile
+COMPOSE_CMD="$DOCKER_COMPOSE_CMD -f $COMPOSE_FILE"
+if [[ -n "$PROFILE" ]]; then
+    COMPOSE_CMD="$COMPOSE_CMD --profile $PROFILE"
+fi
+if [[ -f "$ENV_FILE" ]]; then
+    COMPOSE_CMD="$COMPOSE_CMD --env-file $ENV_FILE"
+fi
+
 # Create backup directory
 mkdir -p "$BACKUP_DIR"
 
@@ -86,6 +101,7 @@ BACKUP_PREFIX="userreports_backup_${TIMESTAMP}"
 
 echo -e "${BLUE}Backup Configuration:${NC}"
 echo -e "  Compose file: ${YELLOW}$COMPOSE_FILE${NC}"
+echo -e "  Profile: ${YELLOW}$PROFILE${NC}"
 echo -e "  Backup type: ${YELLOW}$BACKUP_TYPE${NC}"
 echo -e "  Backup directory: ${YELLOW}$BACKUP_DIR${NC}"
 echo -e "  Compression: ${YELLOW}$COMPRESS${NC}"
@@ -93,7 +109,7 @@ echo -e "  Retention: ${YELLOW}$RETENTION_DAYS days${NC}"
 echo ""
 
 # Check if services are running
-if ! $DOCKER_COMPOSE_CMD -f $COMPOSE_FILE ps | grep -q "Up"; then
+if ! $COMPOSE_CMD ps | grep -q "Up"; then
     echo -e "${RED}❌ No services are running. Please start UserReports first.${NC}"
     exit 1
 fi
@@ -105,7 +121,7 @@ backup_database() {
     local db_backup_file="$BACKUP_DIR/${BACKUP_PREFIX}_database.sql"
     
     # Create database dump
-    $DOCKER_COMPOSE_CMD -f $COMPOSE_FILE exec -T userreports-db pg_dump -U postgres -d userreports > "$db_backup_file"
+    $COMPOSE_CMD exec -T userreports-db pg_dump -U postgres -d userreports > "$db_backup_file"
     
     if [[ $? -eq 0 ]]; then
         echo -e "${GREEN}✅ Database backup created: ${db_backup_file}${NC}"

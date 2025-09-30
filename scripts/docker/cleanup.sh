@@ -42,6 +42,10 @@ while [[ $# -gt 0 ]]; do
             COMPOSE_FILE="$2"
             shift 2
             ;;
+        --profile)
+            PROFILE="$2"
+            shift 2
+            ;;
         --all)
             REMOVE_VOLUMES=true
             REMOVE_IMAGES=true
@@ -55,7 +59,8 @@ while [[ $# -gt 0 ]]; do
             echo "  -i, --images            Remove UserReports Docker images"
             echo "  -n, --networks          Remove UserReports Docker networks"
             echo "  -f, --force             Skip confirmation prompts"
-            echo "  --compose-file FILE     Docker compose file [default: docker-compose.prod.yml]"
+            echo "  --compose-file FILE     Docker compose file [default: docker-compose.yml]"
+            echo "  --profile PROFILE       Docker compose profile (optional)"
             echo "  --all                   Remove everything (volumes, images, networks)"
             echo "  -h, --help              Show this help message"
             echo ""
@@ -78,12 +83,19 @@ if docker compose version >/dev/null 2>&1; then
     DOCKER_COMPOSE_CMD="docker compose"
 fi
 
+# Build compose command with profile if specified
+COMPOSE_CMD="$DOCKER_COMPOSE_CMD -f $COMPOSE_FILE"
+if [[ -n "$PROFILE" ]]; then
+    COMPOSE_CMD="$COMPOSE_CMD --profile $PROFILE"
+fi
+
 echo -e "${BLUE}Cleanup Configuration:${NC}"
 echo -e "  Remove volumes: ${YELLOW}$REMOVE_VOLUMES${NC}"
 echo -e "  Remove images: ${YELLOW}$REMOVE_IMAGES${NC}"
 echo -e "  Remove networks: ${YELLOW}$REMOVE_NETWORKS${NC}"
 echo -e "  Force cleanup: ${YELLOW}$FORCE_CLEANUP${NC}"
 echo -e "  Compose file: ${YELLOW}$COMPOSE_FILE${NC}"
+echo -e "  Profile: ${YELLOW}${PROFILE:-all}${NC}"
 echo ""
 
 # Warning for destructive operations
@@ -103,7 +115,7 @@ fi
 # Stop and remove containers
 echo -e "${BLUE}🛑 Stopping and removing containers...${NC}"
 if [[ -f "$COMPOSE_FILE" ]]; then
-    $DOCKER_COMPOSE_CMD -f $COMPOSE_FILE down --remove-orphans
+    $COMPOSE_CMD down --remove-orphans
     if [[ $? -eq 0 ]]; then
         echo -e "${GREEN}✅ Containers stopped and removed${NC}"
     else

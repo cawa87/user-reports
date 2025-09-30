@@ -62,9 +62,9 @@ services:
   # Database Migration
   userreports-migrate:
     build:
-      context: ./server
+      context: .
       dockerfile: Dockerfile
-      target: ${BACKEND_BUILD_TARGET:-production}
+      target: ${BACKEND_BUILD_TARGET:-backend-production}
     container_name: userreports-migrate
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:${POSTGRES_PASSWORD:-password}@userreports-db:5432/userreports}
@@ -94,9 +94,9 @@ services:
   # Backend API
   userreports-api:
     build:
-      context: ./server
+      context: .
       dockerfile: Dockerfile
-      target: ${BACKEND_BUILD_TARGET:-production}
+      target: ${BACKEND_BUILD_TARGET:-backend-production}
     container_name: userreports-api
     restart: unless-stopped
     environment:
@@ -163,9 +163,9 @@ services:
   # Frontend Application  
   userreports-frontend:
     build:
-      context: ./client
+      context: .
       dockerfile: Dockerfile
-      target: ${FRONTEND_BUILD_TARGET:-production}
+      target: ${FRONTEND_BUILD_TARGET:-frontend-production}
     container_name: userreports-frontend
     restart: unless-stopped
     environment:
@@ -173,7 +173,7 @@ services:
       - VITE_API_URL=${VITE_API_URL:-}
       - VITE_APP_ENV=${VITE_APP_ENV:-production}
     ports:
-      - "${FRONTEND_PORT:-8080}:${FRONTEND_INTERNAL_PORT:-8080}"
+      - "${FRONTEND_PORT:-8080}:8080"
       - "${VITE_DEV_PORT:-5173}:5173"  # Vite dev server (only in dev)
     volumes:
       # Development volume mounts (only active in dev)
@@ -187,7 +187,7 @@ services:
       userreports-api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:${FRONTEND_INTERNAL_PORT:-8080}/health || exit 1"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

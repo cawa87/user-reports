@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# UserReports Docker Build Script
+# UserReports Docker Build Script (Unified Dockerfile)
 set -e
 
 echo "🐳 Building UserReports Docker Images..."
@@ -17,6 +17,7 @@ ENVIRONMENT="production"
 PUSH_TO_REGISTRY=false
 REGISTRY=""
 TAG="latest"
+SERVICES="all"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -37,6 +38,10 @@ while [[ $# -gt 0 ]]; do
             TAG="$2"
             shift 2
             ;;
+        -s|--services)
+            SERVICES="$2"
+            shift 2
+            ;;
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo "Options:"
@@ -44,7 +49,14 @@ while [[ $# -gt 0 ]]; do
             echo "  -p, --push               Push images to registry after build"
             echo "  -r, --registry REGISTRY  Container registry URL"
             echo "  -t, --tag TAG           Image tag [default: latest]"
+            echo "  -s, --services SERVICES  Services to build (all|backend|frontend) [default: all]"
             echo "  -h, --help              Show this help message"
+            echo ""
+            echo "Examples:"
+            echo "  $0                      # Build all services for production"
+            echo "  $0 -e development       # Build all services for development"
+            echo "  $0 -s backend           # Build only backend service"
+            echo "  $0 -p -r my-registry    # Build and push to registry"
             exit 0
             ;;
         *)
@@ -54,57 +66,122 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Determine build targets based on environment
+if [[ "$ENVIRONMENT" == "development" ]]; then
+    BACKEND_TARGET="backend-production"    # Backend always uses production build
+    FRONTEND_TARGET="frontend-development" # Frontend can use dev target
+else
+    BACKEND_TARGET="backend-production"
+    FRONTEND_TARGET="frontend-production"
+fi
+
 # Set image names
 if [[ -n "$REGISTRY" ]]; then
     BACKEND_IMAGE="$REGISTRY/userreports-api:$TAG"
     FRONTEND_IMAGE="$REGISTRY/userreports-frontend:$TAG"
+    FULLSTACK_IMAGE="$REGISTRY/userreports-fullstack:$TAG"
 else
     BACKEND_IMAGE="userreports-api:$TAG"
     FRONTEND_IMAGE="userreports-frontend:$TAG"
+    FULLSTACK_IMAGE="userreports-fullstack:$TAG"
 fi
 
 echo -e "${BLUE}Configuration:${NC}"
 echo -e "  Environment: ${YELLOW}$ENVIRONMENT${NC}"
-echo -e "  Backend Image: ${YELLOW}$BACKEND_IMAGE${NC}"
-echo -e "  Frontend Image: ${YELLOW}$FRONTEND_IMAGE${NC}"
+echo -e "  Services: ${YELLOW}$SERVICES${NC}"
+echo -e "  Backend Target: ${YELLOW}$BACKEND_TARGET${NC}"
+echo -e "  Frontend Target: ${YELLOW}$FRONTEND_TARGET${NC}"
 echo -e "  Push to Registry: ${YELLOW}$PUSH_TO_REGISTRY${NC}"
 echo ""
 
-# Build backend image
-echo -e "${BLUE}Building backend image...${NC}"
-cd server
-docker build \
-    --build-arg NODE_ENV=$ENVIRONMENT \
-    -t $BACKEND_IMAGE \
-    -f Dockerfile \
-    .
+# Build functions
+build_backend() {
+    echo -e "${BLUE}Building backend image...${NC}"
+    docker build \
+        --build-arg NODE_ENV=$ENVIRONMENT \
+        --target $BACKEND_TARGET \
+        -t $BACKEND_IMAGE \
+        .
 
-if [[ $? -eq 0 ]]; then
-    echo -e "${GREEN}✅ Backend image built successfully${NC}"
-else
-    echo -e "${RED}❌ Backend image build failed${NC}"
-    exit 1
-fi
+    if [[ $? -eq 0 ]]; then
+        echo -e "${GREEN}✅ Backend image built successfully: $BACKEND_IMAGE${NC}"
+    else
+        echo -e "${RED}❌ Backend image build failed${NC}"
+        exit 1
+    fi
+}
 
-cd ..
+build_frontend() {
+    echo -e "${BLUE}Building frontend image...${NC}"
+    docker build \
+        --build-arg NODE_ENV=$ENVIRONMENT \
+        --target $FRONTEND_TARGET \
+        -t $FRONTEND_IMAGE \
+        .
 
-# Build frontend image
-echo -e "${BLUE}Building frontend image...${NC}"
-cd client
-docker build \
-    --build-arg NODE_ENV=$ENVIRONMENT \
-    -t $FRONTEND_IMAGE \
-    -f Dockerfile \
-    .
+    if [[ $? -eq 0 ]]; then
+        echo -e "${GREEN}✅ Frontend image built successfully: $FRONTEND_IMAGE${NC}"
+    else
+        echo -e "${RED}❌ Frontend image build failed${NC}"
+        exit 1
+    fi
+}
 
-if [[ $? -eq 0 ]]; then
-    echo -e "${GREEN}✅ Frontend image built successfully${NC}"
-else
-    echo -e "${RED}❌ Frontend image build failed${NC}"
-    exit 1
-fi
+build_fullstack() {
+    echo -e "${BLUE}Building fullstack image...${NC}"
+    docker build \
+        --build-arg NODE_ENV=$ENVIRONMENT \
+        --target fullstack \
+        -t $FULLSTACK_IMAGE \
+        .
 
-cd ..
+    if [[ $? -eq 0 ]]; then
+        echo -e "${GREEN}✅ Fullstack image built successfully: $FULLSTACK_IMAGE${NC}"
+    else
+        echo -e "${RED}❌ Fullstack image build failed${NC}"
+        exit 1
+    fi
+}
+
+# Push function
+push_image() {
+    local image=$1
+    echo -e "${BLUE}Pushing $image...${NC}"
+    
+    docker push $image
+    if [[ $? -eq 0 ]]; then
+        echo -e "${GREEN}✅ $image pushed successfully${NC}"
+    else
+        echo -e "${RED}❌ $image push failed${NC}"
+        exit 1
+    fi
+}
+
+# Build selected services
+case "$SERVICES" in
+    "backend")
+        build_backend
+        BUILT_IMAGES=($BACKEND_IMAGE)
+        ;;
+    "frontend") 
+        build_frontend
+        BUILT_IMAGES=($FRONTEND_IMAGE)
+        ;;
+    "fullstack")
+        build_fullstack
+        BUILT_IMAGES=($FULLSTACK_IMAGE)
+        ;;
+    "all")
+        build_backend
+        build_frontend
+        BUILT_IMAGES=($BACKEND_IMAGE $FRONTEND_IMAGE)
+        ;;
+    *)
+        echo -e "${RED}❌ Unknown service: $SERVICES${NC}"
+        echo -e "${YELLOW}Available services: all, backend, frontend, fullstack${NC}"
+        exit 1
+        ;;
+esac
 
 # Push to registry if requested
 if [[ "$PUSH_TO_REGISTRY" == true ]]; then
@@ -114,26 +191,31 @@ if [[ "$PUSH_TO_REGISTRY" == true ]]; then
     fi
 
     echo -e "${BLUE}Pushing images to registry...${NC}"
-    
-    docker push $BACKEND_IMAGE
-    if [[ $? -eq 0 ]]; then
-        echo -e "${GREEN}✅ Backend image pushed successfully${NC}"
-    else
-        echo -e "${RED}❌ Backend image push failed${NC}"
-        exit 1
-    fi
-
-    docker push $FRONTEND_IMAGE
-    if [[ $? -eq 0 ]]; then
-        echo -e "${GREEN}✅ Frontend image pushed successfully${NC}"
-    else
-        echo -e "${RED}❌ Frontend image push failed${NC}"
-        exit 1
-    fi
+    for image in "${BUILT_IMAGES[@]}"; do
+        push_image $image
+    done
 fi
 
-echo -e "${GREEN}🎉 All images built successfully!${NC}"
+echo -e "${GREEN}🎉 Build completed successfully!${NC}"
 
 # Show image sizes
-echo -e "${BLUE}Image sizes:${NC}"
-docker images | grep userreports | head -2
+echo -e "${BLUE}Built images:${NC}"
+for image in "${BUILT_IMAGES[@]}"; do
+    docker images | grep "$(echo $image | cut -d':' -f1)" | head -1
+done
+
+echo ""
+echo -e "${BLUE}💡 Usage examples:${NC}"
+echo -e "  # Development:"
+echo -e "  docker run -p 5173:5173 $FRONTEND_IMAGE  # Frontend dev server"
+echo -e "  docker run -p 3001:3001 $BACKEND_IMAGE   # Backend API"
+echo ""
+echo -e "  # Production:"
+echo -e "  docker run -p 8080:8080 $FRONTEND_IMAGE  # Frontend with Nginx"
+echo -e "  docker run -p 3001:3001 $BACKEND_IMAGE   # Backend API"
+
+if [[ "$SERVICES" == "all" ]] || [[ "$SERVICES" == "fullstack" ]]; then
+    echo ""
+    echo -e "  # Fullstack (single container):"
+    echo -e "  docker run -p 8080:8080 $FULLSTACK_IMAGE  # Complete app"
+fi
